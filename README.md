@@ -1,4 +1,4 @@
-# netZero - Team 1
+# netZero - Team 1 - Challenge 3 (not 2, as the entry video says)
 Concept code for an organisation-oriented system rewarding points for lowering your carbon footprint. For the AstraZeneca Hackathon 2020.
 
 ---
