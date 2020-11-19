@@ -1,4 +1,5 @@
 import sqlite3
+from typing import Tuple
 
 """
 Code for database handling. We used SQLite here for quick set up,
@@ -107,12 +108,12 @@ class DataConnection:
 
         # add to cache
         new_id = self.total_user_count + 1
-        self.organisations[organisation_id]["leaderboard"] = {
+        self.organisations[organisation_id]["leaderboard"].append( {
             "id": new_id,
             "name": name,
             "email": email_address,
             "points": 0
-        }
+        })
         self.total_user_count += 1
 
         # dump data to db
@@ -129,33 +130,78 @@ class DataConnection:
         """
         Removes a user from the database.
         """
-        # clear from cache and find user's organisation (to decrement user count)
-        user_cleared_from_cache = False
-        users_org_id = None
-        for org_id in self.organisations.keys():
-            org = self.organisations[org_id]
+        # clear from cache
+        users_org_id, user_index = self.get_user_organisation(user_id)
 
-            for user in org["leaderboard"]:
-                if user["id"] == user_id:
-                    org["leaderboard"].remove(user)
-                    user_cleared_from_cache = True
-                    break
-
-            if user_cleared_from_cache:
-                users_org_id = org_id
-                break
-
-        if not users_org_id:
-            raise InvalidUser
-
+        self.organisations[users_org_id]["leaderboard"].pop(user_index)
         self.organisations[users_org_id]["user_count"] -= 1
         new_user_count = self.organisations[users_org_id]["user_count"]
 
         c = self.leaderboard_connection.cursor()
         c.execute("DELETE FROM Users WHERE id=?;", (user_id,))
-        c.execute("UPDATE Organisations SET SET userCount=? WHERE id=?;",
+        c.execute("UPDATE Organisations SET userCount=? WHERE id=?;",
                   (new_user_count, users_org_id))
         self.leaderboard_connection.commit()
+
+    def get_user_organisation(self, user_id: int) -> Tuple[int, int]:
+        """
+        Returns a tuple of the organisation ID tied to the user and
+        the index of the user in the leaderboard.
+        Raises InvalidUsers if not found.
+        """
+        user_found_in_cache = False
+        for org_id in self.organisations.keys():
+            org = self.organisations[org_id]
+            print(org)
+            index = 0
+
+            for user in org["leaderboard"]:
+                if user["id"] == user_id:
+                    index = org["leaderboard"].index(user)
+                    user_found_in_cache = True
+                    break
+
+            if user_found_in_cache:
+                return org_id, index
+
+        if not user_found_in_cache:
+            raise InvalidUser
+
+    def change_organisation_points(self, organisation_id: int, points: int) -> int:
+        """
+        Modifies stored points for an organisation and returns the new points value.
+        Org may need to be changed directly for org achievements.
+        """
+        try:
+            self.organisations[organisation_id]["points"] += points
+            new_points = self.organisations[organisation_id]["points"]
+        except KeyError:
+            raise InvalidOrganisation
+
+        c = self.leaderboard_connection.cursor()
+        c.execute("UPDATE Organisations SET points=? WHERE id=?",
+                  (new_points, organisation_id))
+        self.leaderboard_connection.commit()
+
+        return new_points
+
+    def change_user_points(self, user_id: int, points: int) -> int:
+        """
+        Modifies stored points for a user, the corresponding organisation,
+        and returns the new points value.
+        """
+        users_org_id, user_index = self.get_user_organisation(user_id)
+
+        self.organisations[users_org_id]["leaderboard"][user_index]["points"] += points
+        new_points = self.organisations[users_org_id]["leaderboard"][user_index]["points"]
+        self.change_organisation_points(users_org_id, points)
+
+        c = self.leaderboard_connection.cursor()
+        c.execute("UPDATE Users SET points=? WHERE id=?",
+                  (new_points, user_id))
+        self.leaderboard_connection.commit()
+
+        return new_points
 
 
 class InvalidOrganisation(Exception):
